@@ -76,6 +76,123 @@
 			return true;
 		}
 
+		function add_block( $user_id, $block ) {
+			$slug = uniqid();
+			$this->mysqli->query("INSERT INTO blocks ( type, title, content, author, slug, parent, created_at, modified_at, permission, status ) VALUES ( '" . $this->mysqli->real_escape_string( $block['type'] ) . "', '" . $this->mysqli->real_escape_string( $block['title'] ) . "', '" . $this->mysqli->real_escape_string( $block['content'] ) . "', '$user_id', '" . $slug . "', '" . $block['parent'] . "', '" . date("Y-m-d H:i:s") . "', '" . date("Y-m-d H:i:s") . "', '" . $block['permission'] . "', '1' )");
+			$res = $this->mysqli->query("SELECT id, type, title, content, author, slug, parent, created_at, modified_at, permission FROM blocks WHERE author='$user_id' AND slug='$slug' AND status=1 ORDER BY id DESC LIMIT 1");
+			$arr = $res->fetch_array( MYSQLI_ASSOC );
+
+			return $arr;
+		}
+
+		function get_blocks( $user_id, $type, $page, $entries_per_page, $parent = 0 ) {
+			$x = ( $page - 1 ) * $entries_per_page;
+			$res = $this->mysqli->query("SELECT id, type, title, content, author, slug, parent, created_at, modified_at, permission, status FROM blocks WHERE author='$user_id' AND type='$type' AND status=1 ORDER BY id DESC LIMIT $x, $entries_per_page");
+
+			if( $res->num_rows > 0 ) {
+				while( $row = $res->fetch_array(MYSQLI_ASSOC) ) {
+					$blocks[] = $row;
+				}
+				return $blocks;
+			} else return false;
+		}
+
+		function get_block( $user_id, $type = '', $id = '', $parent = 0 ) {
+			$res = $this->mysqli->query("SELECT id, type, title, content, author, slug, parent, created_at, modified_at, permission, status FROM blocks WHERE status=1 AND author='$user_id'" . ( $type != '' ? " AND type='$type'" : "" ) . ( $id > 0 ? " AND id='" . $id . "'" : "" ) . ( $parent > 0 ? " AND parent='" . $parent . "'" : "" ));
+			if( $res->num_rows > 0 ) {
+				while( $row = $res->fetch_array(MYSQLI_ASSOC) ) {
+					$row['children'] = $this->get_block( $user_id, '', '', $row['id'] );
+					$blocks[] = $row;
+				}
+				return $blocks;
+			} else return false;
+		}
+
+		function delete_block( $id ) {
+			$this->mysqli->query("UPDATE blocks SET status=0 WHERE id='$id'");
+		}
+
+		function upload_image() {
+			$target_dir = "assets/uploads/";
+			$target_file = $target_dir . uniqid() . '-' . basename(str_replace(' ', '-', $_FILES["file"]["name"]));
+
+			$uploadOk = 1;
+			$imageFileType = strtolower(pathinfo($target_file,PATHINFO_EXTENSION));
+			// Check if image file is a actual image or fake image
+			
+		    $check = getimagesize($_FILES["file"]["tmp_name"]);
+		    if($check !== false) {
+		        $uploadOk = 1;
+		    } else {
+		        $uploadOk = 0;
+		    }
+			// Check file size
+			if ($_FILES["file"]["size"] > 500000) {
+			    $msg = "Sorry, your file is too large.";
+			    $uploadOk = 0;
+			}
+			// Allow certain file formats
+			if($imageFileType != "jpg" && $imageFileType != "png" && $imageFileType != "jpeg" && $imageFileType != 'ico' && $imageFileType != "gif" ) {
+			    $msg = "Sorry, only JPG, JPEG, PNG & GIF files are allowed.";
+			    $uploadOk = 0;
+			}
+			// Check if $uploadOk is set to 0 by an error
+			if ($uploadOk == 0) {
+			// if everything is ok, try to upload file
+			} else {
+			    if (move_uploaded_file($_FILES["file"]["tmp_name"], $target_file)) {
+			        $msg = "The file ". basename( $_FILES["file"]["name"]). " has been uploaded.";
+			    }
+			}
+
+			$thumbnail_url = $this->create_thumb( $target_file );
+
+			$res = array(
+							'status'		=> ( $uploadOk > 0 ? 'success' : 'fail' ),
+							'url'			=> BASE . '/' . $target_file,
+							'thumbnail_url'	=> BASE . '/' . $thumbnail_url,
+							'message'		=> $msg
+						);
+
+			echo json_encode( $res );
+		}
+
+		function create_thumb($image)
+	    {
+	        $br = explode( '.', $image );
+	        $extension = $br[count($br)-1];
+
+	        $destination = str_replace( '.' . $extension, '_thumb.' . $extension, $image );
+
+	        $img = false;
+	        if( ($extension=='jpg') || ( $extension == 'jpeg' ) ) $img = imagecreatefromjpeg($image);
+	        elseif($extension=='png') $img = imagecreatefrompng($image);
+	        
+	        if( $img ) {
+	            $width = imagesx( $img );
+	            $height = imagesy( $img );
+	            
+	            $nwidth = 683;
+	            $nheight = ( $height / $width ) * $nwidth;
+
+	            $tmp_img = imagecreatetruecolor( $nwidth, $nheight );
+
+	            imagealphablending($tmp_img, false);
+	            imagesavealpha($tmp_img, true);
+	            $transparent = imagecolorallocatealpha($tmp_img, 255, 255, 255, 127);
+	            imagefilledrectangle($tmp_img, 0, 0, $width, $height, $transparent);
+
+	            imagecopyresized( $tmp_img, $img, 0, 0, 0, 0, $nwidth, $nheight, $width, $height );
+
+	            if( ($extension=='jpg') || ($extension=='jpeg') ) imagejpeg( $tmp_img, $destination );
+	            elseif($extension=='png') imagepng( $tmp_img, $destination, 1 );
+	            
+	            imagedestroy($img);
+	            imagedestroy($tmp_img);
+	            return $destination;
+	        } else return false;
+	    }
+
 		function api_method() {
 			//$this->data = array('a' => 'b');
 			//echo json_encode( $this->data );
